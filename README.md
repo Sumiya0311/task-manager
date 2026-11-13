@@ -7,7 +7,7 @@ The application allows users to securely manage tasks, organize categories, trac
 ## Live Application
 
 - **Frontend (Vercel):** https://task-manager-eta-ashy-35.vercel.app/
-- **Backend (Render):** https://task-manager-wkhw.onrender.com/
+- **Backend (Render):** https://task-manager-wkhw.onrender.com/api/tasks/
 - **GitHub Repository:** https://github.com/Sumiya0311/task-manager
 
 > Note: The Render free instance may take additional time to respond after inactivity.
