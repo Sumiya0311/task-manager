@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import Navbar from "./Navbar";
 
 export default function ProtectedRoute() {
   const { isAuthenticated, loading } = useAuth();
@@ -14,6 +15,11 @@ export default function ProtectedRoute() {
     return <Navigate to="/login" replace />;
   }
 
-  // Allow authenticated users to access protected pages
-  return <Outlet />;
+  // Shared layout for authenticated pages
+  return (
+    <>
+      <Navbar />
+      <Outlet />
+    </>
+  );
 }

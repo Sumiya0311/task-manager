@@ -1,24 +1,47 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+
 import {
   getTasks,
   deleteTask,
   toggleTaskComplete,
 } from "../api/taskApi";
+
 import { getCategories } from "../api/categoryApi";
 
+import TaskCard from "../components/TaskCard";
+import Loader from "../components/Loader";
+import ConfirmDialog from "../components/ConfirmDialog";
+
+const DEFAULT_ORDERING = "-created_at";
+
+function getPage(params) {
+  const value = Number(params.get("page") || 1);
+  return Number.isSafeInteger(value) && value > 0
+    ? value
+    : 1;
+}
+
 export default function Tasks() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [tasks, setTasks] = useState([]);
   const [categories, setCategories] = useState([]);
 
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [dueFilter, setDueFilter] = useState("");
-  const [ordering, setOrdering] = useState("-created_at");
+  const urlSearch = searchParams.get("search") || "";
 
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState(urlSearch);
+  const [debouncedSearch, setDebouncedSearch] =
+    useState(urlSearch);
+
+  const statusFilter = searchParams.get("status") || "";
+  const priorityFilter = searchParams.get("priority") || "";
+  const categoryFilter = searchParams.get("category") || "";
+  const dueFilter = searchParams.get("due") || "";
+  const ordering =
+    searchParams.get("ordering") || DEFAULT_ORDERING;
+  const page = getPage(searchParams);
+
   const [totalCount, setTotalCount] = useState(0);
   const [hasNext, setHasNext] = useState(false);
   const [hasPrevious, setHasPrevious] = useState(false);
@@ -26,19 +49,63 @@ export default function Tasks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [processingId, setProcessingId] = useState(null);
+  const [taskToDelete, setTaskToDelete] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Load categories
+  // Debounce search by 500 milliseconds.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Persist debounced search in the URL.
+  useEffect(() => {
+    if (debouncedSearch === urlSearch) return;
+
+    setSearchParams(
+      (previous) => {
+        const params = new URLSearchParams(previous);
+
+        if (debouncedSearch) {
+          params.set("search", debouncedSearch);
+        } else {
+          params.delete("search");
+        }
+
+        params.delete("page");
+        return params;
+      },
+      { replace: true }
+    );
+  }, [debouncedSearch, urlSearch, setSearchParams]);
+
+  // Restore search when browser history changes.
+  useEffect(() => {
+    if (
+      urlSearch !== debouncedSearch &&
+      search === debouncedSearch
+    ) {
+      setSearch(urlSearch);
+      setDebouncedSearch(urlSearch);
+    }
+  }, [urlSearch]);
+
+  // Load categories.
   useEffect(() => {
     let cancelled = false;
 
-    const loadCategories = async () => {
+    async function loadCategories() {
       try {
         const data = await getCategories();
 
         if (!cancelled) {
           setCategories(
-            Array.isArray(data) ? data : data.results ?? []
+            Array.isArray(data)
+              ? data
+              : data.results ?? []
           );
         }
       } catch (err) {
@@ -46,7 +113,7 @@ export default function Tasks() {
           setError("Unable to load categories.");
         }
       }
-    };
+    }
 
     loadCategories();
 
@@ -55,22 +122,26 @@ export default function Tasks() {
     };
   }, []);
 
-  // Load tasks using backend filters
+  const searchIsPending =
+    search.trim() !== debouncedSearch;
+
+  // Load tasks with search, filters, and pagination.
   useEffect(() => {
+    if (searchIsPending || debouncedSearch !== urlSearch) {
+      return;
+    }
+
     let cancelled = false;
 
-    const loadTasks = async () => {
+    async function loadTasks() {
       setLoading(true);
       setError("");
 
       try {
-        const params = {
-          page,
-          ordering,
-        };
+        const params = { page, ordering };
 
-        if (search.trim()) {
-          params.search = search.trim();
+        if (debouncedSearch) {
+          params.search = debouncedSearch;
         }
 
         if (statusFilter) {
@@ -117,7 +188,7 @@ export default function Tasks() {
           setLoading(false);
         }
       }
-    };
+    }
 
     loadTasks();
 
@@ -125,7 +196,9 @@ export default function Tasks() {
       cancelled = true;
     };
   }, [
-    search,
+    debouncedSearch,
+    urlSearch,
+    searchIsPending,
     statusFilter,
     priorityFilter,
     categoryFilter,
@@ -135,30 +208,60 @@ export default function Tasks() {
     refreshKey,
   ]);
 
-  const changeFilter = (setter, value) => {
-    setter(value);
-    setPage(1);
+  // Update a filter and reset pagination.
+  const changeFilter = (key, value) => {
+    setSearchParams((previous) => {
+      const params = new URLSearchParams(previous);
+
+      if (
+        value &&
+        !(key === "ordering" && value === DEFAULT_ORDERING)
+      ) {
+        params.set(key, String(value));
+      } else {
+        params.delete(key);
+      }
+
+      params.delete("page");
+      return params;
+    });
   };
 
+  // Change the current page.
+  const changePage = (newPage) => {
+    setSearchParams((previous) => {
+      const params = new URLSearchParams(previous);
+
+      if (newPage > 1) {
+        params.set("page", String(newPage));
+      } else {
+        params.delete("page");
+      }
+
+      return params;
+    });
+  };
+
+  // Clear all search and filter settings.
   const resetFilters = () => {
     setSearch("");
-    setStatusFilter("");
-    setPriorityFilter("");
-    setCategoryFilter("");
-    setDueFilter("");
-    setOrdering("-created_at");
-    setPage(1);
+    setDebouncedSearch("");
+    setSearchParams({}, { replace: true });
   };
 
-  // Delete task
-  const handleDelete = async (id) => {
-    if (
-      !window.confirm(
-        "Are you sure you want to delete this task?"
-      )
-    ) {
+  // Open the custom confirmation dialog.
+  const handleDelete = (id) => {
+    if (processingId !== null) return;
+    setTaskToDelete(id);
+  };
+
+  // Delete only after the user confirms.
+  const confirmDelete = async () => {
+    if (taskToDelete === null || processingId !== null) {
       return;
     }
+
+    const id = taskToDelete;
 
     setProcessingId(id);
     setError("");
@@ -166,8 +269,10 @@ export default function Tasks() {
     try {
       await deleteTask(id);
 
+      setTaskToDelete(null);
+
       if (tasks.length === 1 && page > 1) {
-        setPage((current) => current - 1);
+        changePage(page - 1);
       } else {
         setRefreshKey((current) => current + 1);
       }
@@ -181,8 +286,16 @@ export default function Tasks() {
     }
   };
 
-  // Toggle completion
+  // Close the dialog without deleting.
+  const cancelDelete = () => {
+    if (processingId !== null) return;
+    setTaskToDelete(null);
+  };
+
+  // Toggle task completion.
   const handleToggleComplete = async (id) => {
+    if (processingId !== null) return;
+
     setProcessingId(id);
     setError("");
 
@@ -210,7 +323,9 @@ export default function Tasks() {
         <h1>My Tasks</h1>
         <p>View and manage your tasks.</p>
 
-        <Link to="/tasks/new">+ Add New Task</Link>
+        <Link to="/tasks/new">
+          + Add New Task
+        </Link>
       </header>
 
       {/* Search and filters */}
@@ -222,16 +337,14 @@ export default function Tasks() {
           aria-label="Search tasks"
           placeholder="Search tasks..."
           value={search}
-          onChange={(e) =>
-            changeFilter(setSearch, e.target.value)
-          }
+          onChange={(e) => setSearch(e.target.value)}
         />
 
         <select
           aria-label="Filter by status"
           value={statusFilter}
           onChange={(e) =>
-            changeFilter(setStatusFilter, e.target.value)
+            changeFilter("status", e.target.value)
           }
         >
           <option value="">All Statuses</option>
@@ -244,7 +357,7 @@ export default function Tasks() {
           aria-label="Filter by priority"
           value={priorityFilter}
           onChange={(e) =>
-            changeFilter(setPriorityFilter, e.target.value)
+            changeFilter("priority", e.target.value)
           }
         >
           <option value="">All Priorities</option>
@@ -257,7 +370,7 @@ export default function Tasks() {
           aria-label="Filter by category"
           value={categoryFilter}
           onChange={(e) =>
-            changeFilter(setCategoryFilter, e.target.value)
+            changeFilter("category", e.target.value)
           }
         >
           <option value="">All Categories</option>
@@ -265,7 +378,7 @@ export default function Tasks() {
           {categories.map((category) => (
             <option
               key={category.id}
-              value={category.id}
+              value={String(category.id)}
             >
               {category.name}
             </option>
@@ -276,7 +389,7 @@ export default function Tasks() {
           aria-label="Filter by due date"
           value={dueFilter}
           onChange={(e) =>
-            changeFilter(setDueFilter, e.target.value)
+            changeFilter("due", e.target.value)
           }
         >
           <option value="">All Due Dates</option>
@@ -289,15 +402,11 @@ export default function Tasks() {
           aria-label="Sort tasks"
           value={ordering}
           onChange={(e) =>
-            changeFilter(setOrdering, e.target.value)
+            changeFilter("ordering", e.target.value)
           }
         >
-          <option value="-created_at">
-            Newest First
-          </option>
-          <option value="created_at">
-            Oldest First
-          </option>
+          <option value="-created_at">Newest First</option>
+          <option value="created_at">Oldest First</option>
           <option value="due_date">
             Due Date: Earliest First
           </option>
@@ -320,115 +429,95 @@ export default function Tasks() {
         </button>
       </section>
 
-      {!loading && !error && (
-        <p>Total matching tasks: {totalCount}</p>
+      {!loading &&
+        !error &&
+        !searchIsPending &&
+        debouncedSearch === urlSearch && (
+          <p>Total matching tasks: {totalCount}</p>
+        )}
+
+      {(loading ||
+        searchIsPending ||
+        debouncedSearch !== urlSearch) && (
+        <Loader message="Loading tasks..." />
       )}
 
-      {loading && <p>Loading tasks...</p>}
-
-      {error && <p role="alert">{error}</p>}
-
-      {!loading && !error && tasks.length === 0 && (
-        <p>No matching tasks found.</p>
+      {error && !searchIsPending && (
+        <p role="alert">{error}</p>
       )}
 
-      {/* Task list */}
-      {!loading && !error && tasks.length > 0 && (
-        <div className="task-list">
-          {tasks.map((task) => {
-            const isComplete = task.status === "Done";
+      {!loading &&
+        !searchIsPending &&
+        debouncedSearch === urlSearch &&
+        !error &&
+        tasks.length === 0 && (
+          <p>No matching tasks found.</p>
+        )}
 
-            return (
-              <article
-                className="task-card"
+      {/* Reusable task cards */}
+      {!loading &&
+        !searchIsPending &&
+        debouncedSearch === urlSearch &&
+        !error &&
+        tasks.length > 0 && (
+          <div className="task-list">
+            {tasks.map((task) => (
+              <TaskCard
                 key={task.id}
-              >
-                <h2>{task.title}</h2>
-
-                {task.description && (
-                  <p>{task.description}</p>
-                )}
-
-                <p>
-                  <strong>Status:</strong> {task.status}
-                </p>
-
-                <p>
-                  <strong>Priority:</strong> {task.priority}
-                </p>
-
-                <p>
-                  <strong>Due Date:</strong>{" "}
-                  {task.due_date || "Not set"}
-                </p>
-
-                <div className="task-actions">
-                  <Link to={`/tasks/${task.id}/edit`}>
-                    Edit Task
-                  </Link>
-
-                  {" "}
-
-                  <button
-                    type="button"
-                    disabled={processingId !== null}
-                    onClick={() =>
-                      handleToggleComplete(task.id)
-                    }
-                  >
-                    {processingId === task.id
-                      ? "Updating..."
-                      : isComplete
-                      ? "Mark as Incomplete"
-                      : "Mark as Complete"}
-                  </button>
-
-                  {" "}
-
-                  <button
-                    type="button"
-                    disabled={processingId !== null}
-                    onClick={() => handleDelete(task.id)}
-                  >
-                    {processingId === task.id
-                      ? "Processing..."
-                      : "Delete"}
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+                task={task}
+                processingId={processingId}
+                onToggleComplete={handleToggleComplete}
+                onDelete={handleDelete}
+              />
+            ))}
+          </div>
+        )}
 
       {/* Pagination */}
-      {!loading && !error && totalCount > 0 && (
-        <div className="pagination">
-          <button
-            type="button"
-            disabled={!hasPrevious || processingId !== null}
-            onClick={() =>
-              setPage((current) => current - 1)
-            }
-          >
-            Previous
-          </button>
+      {!loading &&
+        !searchIsPending &&
+        debouncedSearch === urlSearch &&
+        !error &&
+        totalCount > 0 && (
+          <div className="pagination">
+            <button
+              type="button"
+              disabled={
+                !hasPrevious || processingId !== null
+              }
+              onClick={() => changePage(page - 1)}
+            >
+              Previous
+            </button>
 
-          <span>
-            Page {page} of {totalPages}
-          </span>
+            <span>
+              Page {page} of {totalPages}
+            </span>
 
-          <button
-            type="button"
-            disabled={!hasNext || processingId !== null}
-            onClick={() =>
-              setPage((current) => current + 1)
-            }
-          >
-            Next
-          </button>
-        </div>
-      )}
+            <button
+              type="button"
+              disabled={
+                !hasNext || processingId !== null
+              }
+              onClick={() => changePage(page + 1)}
+            >
+              Next
+            </button>
+          </div>
+        )}
+
+      {/* Custom confirmation dialog */}
+      <ConfirmDialog
+        isOpen={taskToDelete !== null}
+        title="Delete Task"
+        message="Are you sure you want to delete this task? This action cannot be undone."
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+        loading={
+          taskToDelete !== null &&
+          processingId === taskToDelete
+        }
+      />
     </main>
   );
 }

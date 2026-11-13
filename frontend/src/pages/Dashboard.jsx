@@ -4,7 +4,7 @@ import { getDashboardStats } from "../api/taskApi";
 import { useAuth } from "../context/AuthContext";
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -42,6 +42,7 @@ export default function Dashboard() {
   }, []);
 
   const completed = stats?.done ?? 0;
+
   const pending =
     (stats?.todo ?? 0) + (stats?.in_progress ?? 0);
 
@@ -50,6 +51,7 @@ export default function Dashboard() {
 
   return (
     <main className="dashboard-container">
+      {/* Dashboard Header */}
       <header className="dashboard-header">
         <div>
           <h1>Task Manager Dashboard</h1>
@@ -61,27 +63,9 @@ export default function Dashboard() {
             !
           </p>
         </div>
-
-        <button
-          type="button"
-          className="logout-button"
-          onClick={logout}
-        >
-          Logout
-        </button>
       </header>
 
-      <nav
-        className="dashboard-nav"
-        aria-label="Dashboard navigation"
-      >
-        <Link to="/dashboard">Dashboard</Link>
-        <Link to="/tasks">My Tasks</Link>
-        <Link to="/tasks/new">Add Task</Link>
-        <Link to="/categories">Categories</Link>
-        <Link to="/profile">My Profile</Link>
-      </nav>
-
+      {/* Task Overview */}
       <section className="dashboard-section">
         <h2>Task Overview</h2>
         <p>Track your tasks and monitor your progress.</p>
@@ -92,6 +76,7 @@ export default function Dashboard() {
 
         {!loading && !error && stats && (
           <>
+            {/* Statistics Cards */}
             <div className="stats-grid">
               <article className="stat-card">
                 <span className="stat-label">
@@ -142,6 +127,7 @@ export default function Dashboard() {
               </article>
             </div>
 
+            {/* Completion Progress */}
             <section className="progress-card">
               <h2>Completion Progress</h2>
 
@@ -172,23 +158,33 @@ export default function Dashboard() {
               </div>
             </section>
 
+            {/* Task Summary and Quick Actions */}
             <div className="dashboard-bottom-grid">
               <article className="summary-card">
                 <h2>Task Status</h2>
 
                 <p>
-                  To Do: <strong>{stats.todo ?? 0}</strong>
+                  To Do:{" "}
+                  <strong>{stats.todo ?? 0}</strong>
                 </p>
+
                 <p>
                   In Progress:{" "}
-                  <strong>{stats.in_progress ?? 0}</strong>
+                  <strong>
+                    {stats.in_progress ?? 0}
+                  </strong>
                 </p>
+
                 <p>
-                  Done: <strong>{completed}</strong>
+                  Done:{" "}
+                  <strong>{completed}</strong>
                 </p>
+
                 <p>
                   Due Today:{" "}
-                  <strong>{stats.due_today ?? 0}</strong>
+                  <strong>
+                    {stats.due_today ?? 0}
+                  </strong>
                 </p>
               </article>
 
@@ -199,9 +195,11 @@ export default function Dashboard() {
                   <Link to="/tasks/new">
                     + Create New Task
                   </Link>
+
                   <Link to="/tasks">
                     View All Tasks
                   </Link>
+
                   <Link to="/categories">
                     Manage Categories
                   </Link>
